@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "seed:site-config": "node scripts/seed-site-config.mjs"
+    "seed:site-config": "node scripts/seed-site-config.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260224.0",

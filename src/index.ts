@@ -32,6 +32,7 @@ const JSON_HEADERS: Record<string, string> = {
 const CORS_ALLOWED_METHODS = "POST, OPTIONS";
 const CORS_ALLOWED_HEADERS = "content-type, x-site-key";
 const API_ROUTES = new Set(["/api/subscribe", "/api/contact"]);
+const SITE_KEY_PATTERN = /^[a-zA-Z0-9_-]{1,128}$/;
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -48,6 +49,12 @@ export default {
     if (!siteKey) {
       return jsonResponse(
         { ok: false, error: "Missing siteKey" },
+        { status: 400 }
+      );
+    }
+    if (!isValidSiteKey(siteKey)) {
+      return jsonResponse(
+        { ok: false, error: "Invalid siteKey" },
         { status: 400 }
       );
     }
@@ -69,6 +76,13 @@ export default {
     }
 
     if (request.method === "OPTIONS") {
+      const requestedMethod = request.headers.get("Access-Control-Request-Method");
+      if (requestedMethod && requestedMethod.toUpperCase() !== "POST") {
+        return jsonResponse(
+          { ok: false, error: "Method not allowed" },
+          { status: 405, origin, config }
+        );
+      }
       return handlePreflight(origin, config);
     }
 
@@ -76,6 +90,12 @@ export default {
       return jsonResponse(
         { ok: false, error: "Method not allowed" },
         { status: 405, origin, config }
+      );
+    }
+    if (!isJsonContentType(request.headers.get("content-type"))) {
+      return jsonResponse(
+        { ok: false, error: "Content-Type must be application/json" },
+        { status: 415, origin, config }
       );
     }
 
@@ -121,7 +141,10 @@ async function loadConfig(env: Env, siteKey: string): Promise<SiteConfig | null>
   }
 
   const allowedOrigins = Array.isArray(config.allowedOrigins)
-    ? config.allowedOrigins.filter((value): value is string => typeof value === "string")
+    ? config.allowedOrigins
+        .filter((value): value is string => typeof value === "string")
+        .map((value) => normalizeOrigin(value))
+        .filter((value): value is string => Boolean(value))
     : [];
 
   return {
@@ -150,7 +173,7 @@ function isOriginAllowed(origin: string, config: SiteConfig): boolean {
 
 function corsHeaders(origin: string | null, config?: SiteConfig): Record<string, string> {
   const headers: Record<string, string> = {
-    Vary: "Origin",
+    Vary: "Origin, Access-Control-Request-Headers",
     "Access-Control-Allow-Methods": CORS_ALLOWED_METHODS,
     "Access-Control-Allow-Headers": CORS_ALLOWED_HEADERS,
     "Access-Control-Max-Age": "86400",
@@ -330,6 +353,17 @@ function isHoneypotTriggered(body: JsonRecord): boolean {
   return typeof website === "string" && website.trim().length > 0;
 }
 
+function isValidSiteKey(value: string): boolean {
+  return SITE_KEY_PATTERN.test(value);
+}
+
+function isJsonContentType(contentType: string | null): boolean {
+  if (!contentType) {
+    return false;
+  }
+  return contentType.toLowerCase().includes("application/json");
+}
+
 function normalizeOrigin(origin: string): string | null {
   try {
     return new URL(origin).origin;
@@ -395,4 +429,3 @@ curl -i -X POST "http://127.0.0.1:8787/api/subscribe?siteKey=your-site-key" \
   -H "Origin: http://localhost:3000" \
   --data '{"email":"person@example.com"}'
 */
-
