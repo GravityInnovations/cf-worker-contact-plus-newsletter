@@ -340,17 +340,52 @@ async function handleContact(
     return jsonResponse({ ok: true }, { status: 200, origin, config });
   }
 
-  const message = typeof body.message === "string" ? body.message.trim() : "";
-  if (!message) {
+  const basinEndpoint = getBasinEndpoint(config);
+  if (!basinEndpoint) {
     return jsonResponse(
-      { ok: false, error: "Message is required" },
+      { ok: false, error: "Site provider not configured" },
+      { status: 500, origin, config }
+    );
+  }
+
+  if (!hasAnyNonEmptyField(body)) {
+    return jsonResponse(
+      { ok: false, error: "At least one form field is required" },
       { status: 400, origin, config }
     );
   }
 
+  let upstreamResponse: Response;
+  try {
+    upstreamResponse = await fetch(basinEndpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    console.error("Basin request failed", toLoggableError(error));
+    return jsonResponse(
+      { ok: false, error: "Upstream provider unavailable" },
+      { status: 502, origin, config }
+    );
+  }
+
+  if (upstreamResponse.ok) {
+    return jsonResponse({ ok: true }, { status: 200, origin, config });
+  }
+
+  const upstreamBody = await safeReadText(upstreamResponse);
+  console.error("Basin provider error", {
+    status: upstreamResponse.status,
+    body: sanitizeLogText(upstreamBody),
+  });
+
   return jsonResponse(
-    { ok: false, error: "Not implemented yet" },
-    { status: 501, origin, config }
+    { ok: false, error: "Contact provider error" },
+    { status: 502, origin, config }
   );
 }
 
@@ -379,6 +414,18 @@ function isHoneypotTriggered(body: JsonRecord): boolean {
   return typeof website === "string" && website.trim().length > 0;
 }
 
+function hasAnyNonEmptyField(body: JsonRecord): boolean {
+  for (const value of Object.values(body)) {
+    if (typeof value === "string" && value.trim().length > 0) {
+      return true;
+    }
+    if (typeof value === "number" || typeof value === "boolean") {
+      return true;
+    }
+  }
+  return false;
+}
+
 function isValidSiteKey(value: string): boolean {
   return SITE_KEY_PATTERN.test(value);
 }
@@ -393,6 +440,23 @@ function isJsonContentType(contentType: string | null): boolean {
 function normalizeOrigin(origin: string): string | null {
   try {
     return new URL(origin).origin;
+  } catch {
+    return null;
+  }
+}
+
+function getBasinEndpoint(config: SiteConfig): string | null {
+  const raw = config.basin?.endpoint?.trim();
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== "https:") {
+      return null;
+    }
+    return parsed.toString();
   } catch {
     return null;
   }
