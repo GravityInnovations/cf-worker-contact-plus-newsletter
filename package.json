@@ -1,0 +1,15 @@
+﻿{
+  "name": "multi-tenant-forms-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "seed:site-config": "node scripts/seed-site-config.mjs"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260224.0",
+    "typescript": "^5.8.2",
+    "wrangler": "^4.0.0"
+  }
+}
