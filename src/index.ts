@@ -1,4 +1,6 @@
-﻿export interface Env {
+﻿import type { KVNamespace } from "@cloudflare/workers-types";
+
+export interface Env {
   SITE_CONFIG: KVNamespace;
 }
 
