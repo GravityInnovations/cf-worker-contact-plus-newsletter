@@ -37,25 +37,37 @@ const SITE_KEY_PATTERN = /^[a-zA-Z0-9_-]{1,128}$/;
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    const origin = request.headers.get("Origin");
 
     if (!API_ROUTES.has(url.pathname)) {
       return jsonResponse(
         { ok: false, error: "Not found" },
-        { status: 404 }
+        { status: 404, origin }
       );
+    }
+
+    if (request.method === "OPTIONS") {
+      const requestedMethod = request.headers.get("Access-Control-Request-Method");
+      if (requestedMethod && requestedMethod.toUpperCase() !== "POST") {
+        return jsonResponse(
+          { ok: false, error: "Method not allowed" },
+          { status: 405, origin, publicCors: true }
+        );
+      }
+      return handlePublicPreflight(origin);
     }
 
     const siteKey = getSiteKey(request);
     if (!siteKey) {
       return jsonResponse(
         { ok: false, error: "Missing siteKey" },
-        { status: 400 }
+        { status: 400, origin, publicCors: true }
       );
     }
     if (!isValidSiteKey(siteKey)) {
       return jsonResponse(
         { ok: false, error: "Invalid siteKey" },
-        { status: 400 }
+        { status: 400, origin, publicCors: true }
       );
     }
 
@@ -67,23 +79,11 @@ export default {
       );
     }
 
-    const origin = request.headers.get("Origin");
     if (origin && !isOriginAllowed(origin, config)) {
       return jsonResponse(
         { ok: false, error: "Origin not allowed" },
         { status: 403, origin, config }
       );
-    }
-
-    if (request.method === "OPTIONS") {
-      const requestedMethod = request.headers.get("Access-Control-Request-Method");
-      if (requestedMethod && requestedMethod.toUpperCase() !== "POST") {
-        return jsonResponse(
-          { ok: false, error: "Method not allowed" },
-          { status: 405, origin, config }
-        );
-      }
-      return handlePreflight(origin, config);
     }
 
     if (request.method !== "POST") {
@@ -186,18 +186,37 @@ function corsHeaders(origin: string | null, config?: SiteConfig): Record<string,
   return headers;
 }
 
+function publicCorsHeaders(origin: string | null): Record<string, string> {
+  const headers: Record<string, string> = {
+    Vary: "Origin, Access-Control-Request-Headers",
+    "Access-Control-Allow-Methods": CORS_ALLOWED_METHODS,
+    "Access-Control-Allow-Headers": CORS_ALLOWED_HEADERS,
+    "Access-Control-Max-Age": "86400",
+  };
+
+  if (origin) {
+    headers["Access-Control-Allow-Origin"] = normalizeOrigin(origin) ?? origin;
+  } else {
+    headers["Access-Control-Allow-Origin"] = "*";
+  }
+
+  return headers;
+}
+
 function jsonResponse(
   payload: JsonRecord,
   options: {
     status?: number;
     origin?: string | null;
     config?: SiteConfig;
+    publicCors?: boolean;
   } = {}
 ): Response {
-  const headers = {
-    ...JSON_HEADERS,
-    ...corsHeaders(options.origin ?? null, options.config),
-  };
+  const origin = options.origin ?? null;
+  const cors = options.publicCors
+    ? publicCorsHeaders(origin)
+    : corsHeaders(origin, options.config);
+  const headers = { ...JSON_HEADERS, ...cors };
 
   return new Response(JSON.stringify(payload), {
     status: options.status ?? 200,
@@ -209,6 +228,13 @@ function handlePreflight(origin: string | null, config: SiteConfig): Response {
   return new Response(null, {
     status: 204,
     headers: corsHeaders(origin, config),
+  });
+}
+
+function handlePublicPreflight(origin: string | null): Response {
+  return new Response(null, {
+    status: 204,
+    headers: publicCorsHeaders(origin),
   });
 }
 
